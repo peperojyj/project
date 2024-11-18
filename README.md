@@ -11,10 +11,12 @@ PyTorch implementation of multi-set convolutional networks (MSCNs) to estimate t
 ## Usage
 
 ```python3 train.py --help```
+```py train.py --help```
 
 Example usage:
 
 ```python3 train.py synthetic```
+```py train.py synthetic```
 
 To reproduce the results in [1] use:
 
@@ -23,6 +25,13 @@ To reproduce the results in [1] use:
 ```python3 train.py --queries 100000 --epochs 100 scale```
 
 ```python3 train.py --queries 100000 --epochs 100 job-light```
+
+
+```py train.py --queries 100000 --epochs 100 synthetic```
+
+```py train.py --queries 100000 --epochs 100 scale```
+
+```py train.py --queries 100000 --epochs 100 job-light```
 
 ## References
 
