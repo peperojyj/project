@@ -11,10 +11,11 @@ class SetConv(nn.Module):
         self.predicate_mlp1 = nn.Linear(predicate_feats, hid_units)
         self.predicate_mlp2 = nn.Linear(hid_units, hid_units)
 
-        # Predicate correlation MLPs
         self.max_num_predicates = max_num_predicates
         self.predicate_corr_mlp1 = nn.Linear(max_num_predicates * max_num_predicates, hid_units)
         self.predicate_corr_mlp2 = nn.Linear(hid_units, hid_units)
+
+        self.corr_weight = nn.Parameter(torch.tensor(0.5))  # Learnable weight for correlation contribution
 
         self.join_mlp1 = nn.Linear(join_feats, hid_units)
         self.join_mlp2 = nn.Linear(hid_units, hid_units)
@@ -39,12 +40,12 @@ class SetConv(nn.Module):
         predicate_norm = predicate_mask.sum(1)
         hid_predicate = hid_predicate / predicate_norm
 
-        # Add normalized predicate correlation
-        predicate_corr = torch.bmm(predicates, predicates.transpose(1, 2))  # Compute correlation matrix
-        predicate_corr /= torch.norm(predicate_corr, dim=(1, 2), keepdim=True) + 1e-6  # Normalize correlation matrix
+        # Process predicate correlations
+        predicate_corr = torch.bmm(predicates, predicates.transpose(1, 2))
+        predicate_corr /= torch.norm(predicate_corr, dim=(1, 2), keepdim=True) + 1e-6
         predicate_corr_flat = predicate_corr.view(predicate_corr.size(0), -1)
 
-        # Adjust predicate_corr_flat size to match the expected input
+        # Adjust size and pass through MLP
         expected_size = self.max_num_predicates * self.max_num_predicates
         if predicate_corr_flat.size(1) < expected_size:
             pad_size = expected_size - predicate_corr_flat.size(1)
@@ -54,7 +55,9 @@ class SetConv(nn.Module):
 
         hid_corr = F.relu(self.predicate_corr_mlp1(predicate_corr_flat))
         hid_corr = F.relu(self.predicate_corr_mlp2(hid_corr))
-        hid_predicate += hid_corr
+
+        # Weighted sum with learnable scalar
+        hid_predicate += self.corr_weight * hid_corr
 
         # Process join features
         hid_join = F.relu(self.join_mlp1(joins))
