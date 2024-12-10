@@ -15,12 +15,13 @@ class SetConv(nn.Module):
         self.predicate_corr_mlp1 = nn.Linear(max_num_predicates * max_num_predicates, hid_units)
         self.predicate_corr_mlp2 = nn.Linear(hid_units, hid_units)
 
-        self.corr_weight = nn.Parameter(torch.tensor(0.5))  # Learnable weight for correlation contribution
+        self.corr_weight = nn.Parameter(torch.tensor(0.01))  # Start with a small value
+        self.corr_dropout = nn.Dropout(0.2)  # Dropout for correlation features
 
         self.join_mlp1 = nn.Linear(join_feats, hid_units)
         self.join_mlp2 = nn.Linear(hid_units, hid_units)
 
-        self.out_mlp1 = nn.Linear(hid_units * 3, hid_units)
+        self.out_mlp1 = nn.Linear(hid_units * 3, hid_units)  # Removed direct inclusion of `hid_corr`
         self.out_mlp2 = nn.Linear(hid_units, 1)
 
     def forward(self, samples, predicates, joins, sample_mask, predicate_mask, join_mask):
@@ -41,11 +42,18 @@ class SetConv(nn.Module):
         hid_predicate = hid_predicate / predicate_norm
 
         # Process predicate correlations
-        predicate_corr = torch.bmm(predicates, predicates.transpose(1, 2))
-        predicate_corr /= torch.norm(predicate_corr, dim=(1, 2), keepdim=True) + 1e-6
-        predicate_corr_flat = predicate_corr.view(predicate_corr.size(0), -1)
+        predicate_corr = torch.bmm(predicates, predicates.transpose(1, 2))  # Pairwise correlations
+        predicate_corr = torch.abs(predicate_corr)  # Non-negative values
 
-        # Adjust size and pass through MLP
+        # Apply threshold for noise filtering
+        threshold = 0.1  # Adjustable
+        predicate_corr = torch.where(predicate_corr > threshold, predicate_corr, torch.tensor(0.0, device=predicate_corr.device))
+
+        # Normalize correlation matrix
+        predicate_corr /= (predicate_corr.norm(dim=(1, 2), keepdim=True) + 1e-6)
+
+        # Flatten and pass through MLP
+        predicate_corr_flat = predicate_corr.view(predicate_corr.size(0), -1)
         expected_size = self.max_num_predicates * self.max_num_predicates
         if predicate_corr_flat.size(1) < expected_size:
             pad_size = expected_size - predicate_corr_flat.size(1)
@@ -55,6 +63,7 @@ class SetConv(nn.Module):
 
         hid_corr = F.relu(self.predicate_corr_mlp1(predicate_corr_flat))
         hid_corr = F.relu(self.predicate_corr_mlp2(hid_corr))
+        hid_corr = self.corr_dropout(hid_corr)  # Apply dropout to `hid_corr`
 
         # Weighted sum with learnable scalar
         hid_predicate += self.corr_weight * hid_corr

@@ -88,7 +88,6 @@ def print_qerror(preds_unnorm, labels_unnorm):
     print("Max: {}".format(np.max(qerror)))
     print("Mean: {}".format(np.mean(qerror)))
 
-
 def train_and_predict(workload_name, num_queries, num_epochs, batch_size, hid_units, cuda):
     # Load training and validation data
     num_materialized_samples = 1000
@@ -118,7 +117,11 @@ def train_and_predict(workload_name, num_queries, num_epochs, batch_size, hid_un
     # Training loop
     model.train()
     for epoch in range(num_epochs):
-        loss_total = 0.
+        loss_total = 0.0
+
+        # Gradually increase `corr_weight`
+        model.corr_weight.data = torch.clamp(model.corr_weight.data + 0.01, max=1.0)  # Increase to a max of 1.0
+        print(f"Epoch {epoch}, corr_weight: {model.corr_weight.item()}")
 
         for batch_idx, data_batch in enumerate(train_data_loader):
             samples, predicates, joins, targets, sample_masks, predicate_masks, join_masks = data_batch
@@ -134,18 +137,24 @@ def train_and_predict(workload_name, num_queries, num_epochs, batch_size, hid_un
             optimizer.zero_grad()
             outputs = model(samples, predicates, joins, sample_masks, predicate_masks, join_masks)
             loss = qerror_loss(outputs, targets.float(), min_val, max_val)
+
+            # Temporarily remove regularization for debugging
+            # predicate_corr = torch.bmm(predicates, predicates.transpose(1, 2))
+            # reg_loss = torch.norm(predicate_corr, p=1)
+            # loss += 0.001 * reg_loss
+
             loss_total += loss.item()
             loss.backward()
             optimizer.step()
 
-        print("Epoch {}, loss: {}".format(epoch, loss_total / len(train_data_loader)))
+        print("Epoch {}, Average Loss: {:.6f}".format(epoch, loss_total / len(train_data_loader)))
 
     # Final training and validation set predictions
     preds_train, t_total = predict(model, train_data_loader, cuda)
-    print("Prediction time per training sample: {}".format(t_total / len(labels_train) * 1000))
+    print("Prediction time per training sample: {:.6f} ms".format(t_total / len(labels_train) * 1000))
 
     preds_test, t_total = predict(model, test_data_loader, cuda)
-    print("Prediction time per validation sample: {}".format(t_total / len(labels_test) * 1000))
+    print("Prediction time per validation sample: {:.6f} ms".format(t_total / len(labels_test) * 1000))
 
     # Unnormalize predictions
     preds_train_unnorm = unnormalize_labels(preds_train, min_val, max_val)
@@ -155,10 +164,10 @@ def train_and_predict(workload_name, num_queries, num_epochs, batch_size, hid_un
     labels_test_unnorm = unnormalize_labels(labels_test, min_val, max_val)
 
     # Print training and validation metrics
-    print("\nQ-Error training set:")
+    print("\nTraining Q-Error after Training:")
     print_qerror(preds_train_unnorm, labels_train_unnorm)
 
-    print("\nQ-Error validation set:")
+    print("\nValidation Q-Error after Training:")
     print_qerror(preds_test_unnorm, labels_test_unnorm)
     print("")
 
@@ -179,12 +188,15 @@ def train_and_predict(workload_name, num_queries, num_epochs, batch_size, hid_un
     test_data_loader = DataLoader(test_data, batch_size=batch_size)
 
     preds_test, t_total = predict(model, test_data_loader, cuda)
-    print("Prediction time per test sample: {}".format(t_total / len(labels_test) * 1000))
+    print("Prediction time per test sample: {:.6f} ms".format(t_total / len(labels_test) * 1000))
 
     preds_test_unnorm = unnormalize_labels(preds_test, min_val, max_val)
 
-    print("\nQ-Error " + workload_name + ":")
+    print("\nQ-Error for Test Set {}:".format(workload_name))
     print_qerror(preds_test_unnorm, label)
+
+
+
 
 
 def main():
