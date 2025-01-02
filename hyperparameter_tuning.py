@@ -6,8 +6,8 @@ import numpy as np
 import torch
 from torch.autograd import Variable
 from torch.utils.data import DataLoader
-from mscn.data import get_train_datasets
-from mscn.model import SetConvWithAttention
+from h_mscn.data import get_train_datasets
+from h_mscn.model import SetConvWithAttention
 
 def unnormalize_torch(vals, min_val, max_val):
     vals = (vals * (max_val - min_val)) + min_val
@@ -113,7 +113,7 @@ def train_and_evaluate(workload_name, learning_rate, hidden_units, batch_size, n
     val_loss = qerror_loss(torch.tensor(preds_test), torch.tensor(labels_test).float(), min_val, max_val).item()
     return train_loss, val_loss
 
-def hyperparameter_tuning(workloads, learning_rates, hidden_units, batch_sizes, epochs, results_file):
+def hyperparameter_tuning(workloads, learning_rates, hidden_units, batch_sizes, epochs_list, results_file):
     if not os.path.exists(results_file):
         with open(results_file, "w", newline="") as f:
             writer = csv.writer(f)
@@ -123,11 +123,12 @@ def hyperparameter_tuning(workloads, learning_rates, hidden_units, batch_sizes, 
         for lr in learning_rates:
             for hu in hidden_units:
                 for bs in batch_sizes:
-                    print(f"Starting experiment: Workload={workload}, LR={lr}, HU={hu}, Batch Size={bs}, Epochs={epochs}")
-                    train_loss, val_loss = train_and_evaluate(workload, lr, hu, bs, epochs)
-                    with open(results_file, "a", newline="") as f:
-                        writer = csv.writer(f)
-                        writer.writerow([workload, lr, hu, bs, epochs, train_loss, val_loss])
+                    for epochs in epochs_list:
+                        print(f"Starting experiment: Workload={workload}, LR={lr}, HU={hu}, Batch Size={bs}, Epochs={epochs}")
+                        train_loss, val_loss = train_and_evaluate(workload, lr, hu, bs, epochs)
+                        with open(results_file, "a", newline="") as f:
+                            writer = csv.writer(f)
+                            writer.writerow([workload, lr, hu, bs, epochs, train_loss, val_loss])
 
 def main():
     parser = argparse.ArgumentParser()
@@ -135,7 +136,7 @@ def main():
     parser.add_argument("--learning_rates", type=float, nargs="+", required=True, help="List of learning rates.")
     parser.add_argument("--hidden_units", type=int, nargs="+", required=True, help="List of hidden unit sizes.")
     parser.add_argument("--batch_sizes", type=int, nargs="+", required=True, help="List of batch sizes.")
-    parser.add_argument("--epochs", type=int, default=100, help="Number of epochs.")
+    parser.add_argument("--epochs", type=int, nargs="+", default=[100], help="List of epochs to try.")
     parser.add_argument("--results_file", type=str, default="tuning_results.csv", help="File to store tuning results.")
     args = parser.parse_args()
 
