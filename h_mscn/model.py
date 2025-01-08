@@ -6,15 +6,12 @@ class SetConvWithAttention(nn.Module):
     def __init__(self, sample_feats, predicate_feats, join_feats, hid_units, max_num_predicates, max_num_joins):
         super(SetConvWithAttention, self).__init__()
 
-        # MLP layers for sample features
         self.sample_mlp1 = nn.Linear(sample_feats, hid_units)
         self.sample_mlp2 = nn.Linear(hid_units, hid_units)
 
-        # MLP layers for predicate features
         self.predicate_mlp1 = nn.Linear(predicate_feats, hid_units)
         self.predicate_mlp2 = nn.Linear(hid_units, hid_units)
 
-        # MLP layers for join features
         self.join_mlp1 = nn.Linear(join_feats, hid_units)
         self.join_mlp2 = nn.Linear(hid_units, hid_units)
 
@@ -26,25 +23,22 @@ class SetConvWithAttention(nn.Module):
         self.cross_attention_pred = nn.MultiheadAttention(embed_dim=hid_units, num_heads=1, batch_first=True)
         self.cross_attention_join = nn.MultiheadAttention(embed_dim=hid_units, num_heads=1, batch_first=True)
 
-        # Query projection to align dimensions
+    
         self.query_projection = nn.Linear(hid_units * 2, hid_units)  # Reduces combined_query (1024) to hid_units (512)
 
-        # Output MLP layers
         self.out_mlp1 = nn.Linear(hid_units * 3, hid_units)
         self.out_mlp2 = nn.Linear(hid_units, 1)
 
     def forward(self, samples, predicates, joins, sample_mask, predicate_mask, join_mask):
-        # Process sample features
+       
         hid_sample = F.relu(self.sample_mlp1(samples))
         hid_sample = F.relu(self.sample_mlp2(hid_sample))
         hid_sample = hid_sample * sample_mask
         hid_sample = torch.sum(hid_sample, dim=1) / sample_mask.sum(1)
 
-        # Process predicate features
         hid_predicate = F.relu(self.predicate_mlp1(predicates))
         hid_predicate = F.relu(self.predicate_mlp2(hid_predicate))
 
-        # Process join features
         hid_join = F.relu(self.join_mlp1(joins))
         hid_join = F.relu(self.join_mlp2(hid_join))
 
@@ -60,6 +54,7 @@ class SetConvWithAttention(nn.Module):
         # Self-Attention: refine joins
         refined_joins, _ = self.join_self_attn(
             hid_join, hid_join, hid_join, key_padding_mask=~join_mask.bool()
+
         )
 
         # Aggregate refined predicates
@@ -85,7 +80,7 @@ class SetConvWithAttention(nn.Module):
         )
 
         # Remove sequence dimension after attention
-        attended_predicates = attended_predicates.squeeze(1)
+        attended_predicates = attended_predicates.squeeze(1) 
         attended_joins = attended_joins.squeeze(1)
 
         # Combine all features
