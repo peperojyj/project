@@ -5,6 +5,7 @@ import torch
 import os
 from torch.autograd import Variable
 from torch.utils.data import DataLoader
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 from h_mscn.util import *
 from h_mscn.data import get_train_datasets, load_data, make_dataset
@@ -96,6 +97,7 @@ def train_and_predict(workload_name, num_queries, num_epochs, batch_size, hid_un
 
     model = SetConvWithAttention(sample_feats, predicate_feats, join_feats, hid_units, max_num_predicates, max_num_joins)
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+    scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5)  # Adaptive learning rate
 
     if cuda:
         model.cuda()
@@ -110,6 +112,7 @@ def train_and_predict(workload_name, num_queries, num_epochs, batch_size, hid_un
     model.train()
     for epoch in range(num_epochs):
         loss_total = 0.0
+        entropy_loss_total = 0.0  # Track entropy loss
 
         for batch_idx, data_batch in enumerate(train_data_loader):
             samples, predicates, joins, targets, sample_masks, predicate_masks, join_masks = data_batch
@@ -126,11 +129,24 @@ def train_and_predict(workload_name, num_queries, num_epochs, batch_size, hid_un
             outputs = model(samples, predicates, joins, sample_masks, predicate_masks, join_masks)
             loss = qerror_loss(outputs, targets.float(), min_val, max_val)
 
-            loss_total += loss.item()
-            loss.backward()
-            optimizer.step()
+            # Compute entropy regularization loss
+            '''entropy_loss = model.entropy_loss(lambda_entropy=0.01)
+            total_loss = loss + entropy_loss  # Combine both losses'''
 
-        print("Epoch {}/{}, Loss: {:.6f}".format(epoch + 1, num_epochs, loss_total / len(train_data_loader)))
+            total_loss = loss
+
+            loss_total += loss.item()
+            '''entropy_loss_total += entropy_loss.item()  # Track entropy loss'''
+            
+            total_loss.backward()  # Use the combined loss for backpropagation
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)  # Clip gradients to a max norm of 1.0
+            optimizer.step()
+        
+        scheduler.step(loss_total / len(train_data_loader))  # Update learning rate
+        '''print("Epoch {}/{}, Q-Error Loss: {:.6f}, Entropy Loss: {:.6f}".format(
+            epoch + 1, num_epochs, loss_total / len(train_data_loader), entropy_loss_total / len(train_data_loader)
+        ))'''
+        print("Epoch {}/{}, Q-Error Loss: {:.6f}".format(epoch + 1, num_epochs, loss_total / len(train_data_loader)))
 
     preds_train, t_total = predict(model, train_data_loader, cuda)
     print("Prediction time per training sample: {:.6f} ms".format(t_total / len(labels_train) * 1000))

@@ -159,7 +159,7 @@ def make_dataset(samples, predicates, joins, labels, max_num_joins, max_num_pred
     join_masks = np.vstack(join_masks)
     join_masks = torch.FloatTensor(join_masks)
 
-    target_tensor = torch.FloatTensor(labels)
+    target_tensor = torch.FloatTensor(labels) 
 
     return dataset.TensorDataset(sample_tensors, predicate_tensors, join_tensors, target_tensor, sample_masks,
                                  predicate_masks, join_masks)

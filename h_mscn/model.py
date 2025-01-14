@@ -23,11 +23,28 @@ class SetConvWithAttention(nn.Module):
         self.cross_attention_pred = nn.MultiheadAttention(embed_dim=hid_units, num_heads=1, batch_first=True)
         self.cross_attention_join = nn.MultiheadAttention(embed_dim=hid_units, num_heads=1, batch_first=True)
 
+        # Entropy tracking attributes
+        self.predicate_entropy = 0.0
+        self.join_entropy = 0.0
+        self.cross_pred_entropy = 0.0
+        self.cross_join_entropy = 0.0
+
+        # Added dropout layers for attention
+        self.predicate_attn_dropout = nn.Dropout(0.1)
+        self.join_attn_dropout = nn.Dropout(0.1)
+        self.cross_pred_attn_dropout = nn.Dropout(0.1)
+        self.cross_join_attn_dropout = nn.Dropout(0.1) 
     
         self.query_projection = nn.Linear(hid_units * 2, hid_units)  # Reduces combined_query (1024) to hid_units (512)
 
         self.out_mlp1 = nn.Linear(hid_units * 3, hid_units)
         self.out_mlp2 = nn.Linear(hid_units, 1)
+
+    '''def compute_entropy(self, attn_weights):
+        # Compute entropy for attention weights.
+        attn_weights = attn_weights + 1e-8  # Avoid log(0)
+        entropy = -torch.sum(attn_weights * torch.log(attn_weights), dim=-1)  # Sum over keys
+       return entropy'''
 
     def forward(self, samples, predicates, joins, sample_mask, predicate_mask, join_mask):
        
@@ -47,15 +64,17 @@ class SetConvWithAttention(nn.Module):
         join_mask = join_mask.squeeze(-1) if join_mask.dim() == 3 else join_mask
 
         # Self-Attention: refine predicates
-        refined_predicates, _ = self.predicate_self_attn(
+        refined_predicates, pred_attn_weights = self.predicate_self_attn(
             hid_predicate, hid_predicate, hid_predicate, key_padding_mask=~predicate_mask.bool()
         )
+        '''self.predicate_entropy = self.compute_entropy(pred_attn_weights)  #### Track predicate entropy'''
 
         # Self-Attention: refine joins
-        refined_joins, _ = self.join_self_attn(
+        refined_joins, join_attn_weights = self.join_self_attn(
             hid_join, hid_join, hid_join, key_padding_mask=~join_mask.bool()
-
         )
+        '''self.join_entropy = self.compute_entropy(join_attn_weights)  #### Track join entropy'''
+
 
         # Aggregate refined predicates
         predicate_mask_expanded = predicate_mask.unsqueeze(-1).expand_as(refined_predicates)
@@ -70,14 +89,16 @@ class SetConvWithAttention(nn.Module):
         query_vector = self.query_projection(combined_query).unsqueeze(1)  # [batch_size, 1, hidden_dim]
 
         # Cross-Attention: Query -> Refined Predicates
-        attended_predicates, _ = self.cross_attention_pred(
+        attended_predicates, cross_pred_attn_weights = self.cross_attention_pred(
             query_vector, refined_predicates, refined_predicates, key_padding_mask=~predicate_mask.bool()
         )
+        '''self.cross_pred_entropy = self.compute_entropy(cross_pred_attn_weights)  #### Track cross-predicate entropy'''
 
         # Cross-Attention: Query -> Refined Joins
-        attended_joins, _ = self.cross_attention_join(
+        attended_joins, cross_join_attn_weights = self.cross_attention_join(
             query_vector, refined_joins, refined_joins, key_padding_mask=~join_mask.bool()
         )
+        '''self.cross_join_entropy = self.compute_entropy(cross_join_attn_weights)  #### Track cross-join entropy'''
 
         # Remove sequence dimension after attention
         attended_predicates = attended_predicates.squeeze(1) 
@@ -91,3 +112,9 @@ class SetConvWithAttention(nn.Module):
         out = torch.sigmoid(self.out_mlp2(hid))
 
         return out
+    
+    '''def entropy_loss(self, lambda_entropy):
+        # Compute the entropy regularization loss 
+        total_entropy = torch.mean(self.predicate_entropy) + torch.mean(self.join_entropy) + \
+                        torch.mean(self.cross_pred_entropy) + torch.mean(self.cross_join_entropy)
+        return -lambda_entropy * total_entropy  # Negative sign to maximize entropy'''
