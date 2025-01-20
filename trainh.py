@@ -97,6 +97,7 @@ def train_and_predict(workload_name, num_queries, num_epochs, batch_size, hid_un
 
     model = SetConvWithAttention(sample_feats, predicate_feats, join_feats, hid_units, max_num_predicates, max_num_joins)
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+    #optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=0.01)  # Added weight_decay for L2 regularization
     scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5)  # Adaptive learning rate
 
     if cuda:
@@ -133,13 +134,11 @@ def train_and_predict(workload_name, num_queries, num_epochs, batch_size, hid_un
             '''entropy_loss = model.entropy_loss(lambda_entropy=0.01)
             total_loss = loss + entropy_loss  # Combine both losses'''
 
-            total_loss = loss
-
             loss_total += loss.item()
             '''entropy_loss_total += entropy_loss.item()  # Track entropy loss'''
             
-            total_loss.backward()  # Use the combined loss for backpropagation
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)  # Clip gradients to a max norm of 1.0
+            loss.backward()  # Use the combined loss for backpropagation
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=0.5)  # Clip gradients to a max norm of 0.5
             optimizer.step()
         
         scheduler.step(loss_total / len(train_data_loader))  # Update learning rate

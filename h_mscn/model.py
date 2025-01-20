@@ -6,35 +6,38 @@ class SetConvWithAttention(nn.Module):
     def __init__(self, sample_feats, predicate_feats, join_feats, hid_units, max_num_predicates, max_num_joins):
         super(SetConvWithAttention, self).__init__()
 
+        # Reduce hidden units for attention layers to improve generalization
+        attention_hid_units = int(hid_units * 0.75)  # Reduced hidden dimension size by 25%
+
         # MLPs for processing sample, predicate, and join features
         self.sample_mlp1 = nn.Linear(sample_feats, hid_units)
         self.sample_mlp2 = nn.Linear(hid_units, hid_units)
 
-        self.predicate_mlp1 = nn.Linear(predicate_feats, hid_units)
-        self.predicate_mlp2 = nn.Linear(hid_units, hid_units)
+        self.predicate_mlp1 = nn.Linear(predicate_feats, attention_hid_units)  # Match attention dimension
+        self.predicate_mlp2 = nn.Linear(attention_hid_units, attention_hid_units)  # Match attention dimension
 
-        self.join_mlp1 = nn.Linear(join_feats, hid_units)
-        self.join_mlp2 = nn.Linear(hid_units, hid_units)
+        self.join_mlp1 = nn.Linear(join_feats, attention_hid_units)  # Match attention dimension
+        self.join_mlp2 = nn.Linear(attention_hid_units, attention_hid_units)  # Match attention dimension
 
         # Enhanced multi-head attention
-        self.predicate_self_attn = nn.MultiheadAttention(embed_dim=hid_units, num_heads=4, batch_first=True)
-        self.join_self_attn = nn.MultiheadAttention(embed_dim=hid_units, num_heads=4, batch_first=True)
-        self.cross_attention_pred = nn.MultiheadAttention(embed_dim=hid_units, num_heads=4, batch_first=True)
-        self.cross_attention_join = nn.MultiheadAttention(embed_dim=hid_units, num_heads=4, batch_first=True)
+        self.predicate_self_attn = nn.MultiheadAttention(embed_dim=attention_hid_units, num_heads=2, batch_first=True)  # Updated hidden units
+        self.join_self_attn = nn.MultiheadAttention(embed_dim=attention_hid_units, num_heads=2, batch_first=True)  # Updated hidden units
+        self.cross_attention_pred = nn.MultiheadAttention(embed_dim=attention_hid_units, num_heads=2, batch_first=True)  # Updated hidden units
+        self.cross_attention_join = nn.MultiheadAttention(embed_dim=attention_hid_units, num_heads=2, batch_first=True)  # Updated hidden units
 
         # Positional embeddings
-        self.predicate_positional_embedding = nn.Parameter(torch.randn(max_num_predicates, hid_units))
-        self.join_positional_embedding = nn.Parameter(torch.randn(max_num_joins, hid_units))
+        self.predicate_positional_embedding = nn.Parameter(torch.randn(max_num_predicates, attention_hid_units))  # Match attention dimension
+        self.join_positional_embedding = nn.Parameter(torch.randn(max_num_joins, attention_hid_units))  # Match attention dimension
 
         # Dropout for regularization
-        self.predicate_attn_dropout = nn.Dropout(0.1)
-        self.join_attn_dropout = nn.Dropout(0.1)
-        self.cross_pred_attn_dropout = nn.Dropout(0.1)
-        self.cross_join_attn_dropout = nn.Dropout(0.1)
+        self.predicate_attn_dropout = nn.Dropout(0.3)  # Increased dropout to 0.3
+        self.join_attn_dropout = nn.Dropout(0.3) 
+        self.cross_pred_attn_dropout = nn.Dropout(0.3)  
+        self.cross_join_attn_dropout = nn.Dropout(0.3) 
 
         # Query projection and output layers
-        self.query_projection = nn.Linear(hid_units * 2, hid_units)
-        self.out_mlp1 = nn.Linear(hid_units * 3, hid_units)
+        self.query_projection = nn.Linear(attention_hid_units * 2, attention_hid_units)
+        self.out_mlp1 = nn.Linear(hid_units + attention_hid_units * 2, hid_units)
         self.out_mlp2 = nn.Linear(hid_units, 1)
 
     def forward(self, samples, predicates, joins, sample_mask, predicate_mask, join_mask):
