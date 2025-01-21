@@ -62,20 +62,26 @@ class SetConvWithAttention(nn.Module):
         predicate_pos_embedding = self.predicate_positional_embedding[:num_predicates, :]
         join_pos_embedding = self.join_positional_embedding[:num_joins, :]
 
-        # Pad embeddings if needed
+        # Handle dynamic resizing of positional embeddings
         if num_predicates > predicate_pos_embedding.size(0):
             predicate_pos_embedding = F.pad(predicate_pos_embedding, (0, 0, 0, num_predicates - predicate_pos_embedding.size(0)))
+        elif num_predicates < predicate_pos_embedding.size(0):
+            predicate_pos_embedding = predicate_pos_embedding[:num_predicates, :]
+
         if num_joins > join_pos_embedding.size(0):
             join_pos_embedding = F.pad(join_pos_embedding, (0, 0, 0, num_joins - join_pos_embedding.size(0)))
+        elif num_joins < join_pos_embedding.size(0):
+            join_pos_embedding = join_pos_embedding[:num_joins, :]
 
         # Expand embeddings to batch size
         predicate_pos_embedding = predicate_pos_embedding.unsqueeze(0).expand(batch_size, -1, -1)
         join_pos_embedding = join_pos_embedding.unsqueeze(0).expand(batch_size, -1, -1)
 
+        # Add positional embeddings
         hid_predicate = hid_predicate + predicate_pos_embedding
         hid_join = hid_join + join_pos_embedding
 
-        # Ensure key_padding_mask is 2-D
+        # Ensure key_padding_mask is 2D
         predicate_mask = predicate_mask.squeeze(-1) if predicate_mask.dim() == 3 else predicate_mask
         join_mask = join_mask.squeeze(-1) if join_mask.dim() == 3 else join_mask
 
@@ -92,10 +98,14 @@ class SetConvWithAttention(nn.Module):
 
         # Aggregate refined features
         predicate_mask_expanded = predicate_mask.unsqueeze(-1).expand_as(refined_predicates)
-        predicate_agg = torch.sum(refined_predicates * predicate_mask_expanded, dim=1) / (predicate_mask.sum(1, keepdim=True) + 1e-8)
+        predicate_agg = torch.sum(refined_predicates * predicate_mask_expanded, dim=1) / (
+            predicate_mask.sum(1, keepdim=True) + 1e-8
+        )
 
         join_mask_expanded = join_mask.unsqueeze(-1).expand_as(refined_joins)
-        join_agg = torch.sum(refined_joins * join_mask_expanded, dim=1) / (join_mask.sum(1, keepdim=True) + 1e-8)
+        join_agg = torch.sum(refined_joins * join_mask_expanded, dim=1) / (
+            join_mask.sum(1, keepdim=True) + 1e-8
+        )
 
         # Combine query vector
         combined_query = torch.cat((predicate_agg, join_agg), dim=-1)
