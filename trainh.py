@@ -29,6 +29,24 @@ def qerror_loss(preds, targets, min_val, max_val):
     qerror = torch.stack(qerror)
     return torch.mean(qerror)
 
+def weighted_qerror_loss(preds, targets, min_val, max_val, threshold=10.0, penalty_factor=2.0):
+    # Unnormalize predictions and targets
+    preds = unnormalize_torch(preds, min_val, max_val)
+    targets = unnormalize_torch(targets, min_val, max_val)
+
+    qerror = []
+    for i in range(len(targets)):
+        q = preds[i] / targets[i] if preds[i] > targets[i] else targets[i] / preds[i]
+        
+        # Apply penalty factor if Q-error exceeds the threshold
+        if q > threshold:
+            q *= penalty_factor  # Penalize high Q-errors more
+        qerror.append(q)
+
+    qerror = torch.stack(qerror)
+    return torch.mean(qerror)
+
+
 def predict(model, data_loader, cuda):
     preds = []
     t_total = 0.0
@@ -96,9 +114,11 @@ def train_and_predict(workload_name, num_queries, num_epochs, batch_size, hid_un
     join_feats = len(join2vec)
 
     model = SetConvWithAttention(sample_feats, predicate_feats, join_feats, hid_units, max_num_predicates, max_num_joins)
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
-    #optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=0.01)  # Added weight_decay for L2 regularization
-    scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5)  # Adaptive learning rate
+    #optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+    #scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5)  # Adaptive learning rate
+
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=0.001)
+    scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.3, patience=3)
 
     if cuda:
         model.cuda()
@@ -128,23 +148,16 @@ def train_and_predict(workload_name, num_queries, num_epochs, batch_size, hid_un
 
             optimizer.zero_grad()
             outputs = model(samples, predicates, joins, sample_masks, predicate_masks, join_masks)
-            loss = qerror_loss(outputs, targets.float(), min_val, max_val)
+            #loss = qerror_loss(outputs, targets.float(), min_val, max_val)
 
-            # Compute entropy regularization loss
-            '''entropy_loss = model.entropy_loss(lambda_entropy=0.01)
-            total_loss = loss + entropy_loss  # Combine both losses'''
+            loss = weighted_qerror_loss(outputs, targets.float(), min_val, max_val, threshold=10.0, penalty_factor=2.0)
 
             loss_total += loss.item()
-            '''entropy_loss_total += entropy_loss.item()  # Track entropy loss'''
-            
             loss.backward()  # Use the combined loss for backpropagation
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=0.5)  # Clip gradients to a max norm of 0.5
             optimizer.step()
         
         scheduler.step(loss_total / len(train_data_loader))  # Update learning rate
-        '''print("Epoch {}/{}, Q-Error Loss: {:.6f}, Entropy Loss: {:.6f}".format(
-            epoch + 1, num_epochs, loss_total / len(train_data_loader), entropy_loss_total / len(train_data_loader)
-        ))'''
         print("Epoch {}/{}, Q-Error Loss: {:.6f}".format(epoch + 1, num_epochs, loss_total / len(train_data_loader)))
 
     preds_train, t_total = predict(model, train_data_loader, cuda)
